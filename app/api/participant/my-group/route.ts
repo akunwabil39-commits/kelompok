@@ -6,16 +6,16 @@ export async function GET() {
   try {
     const session = await getSession();
     if (!session) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      return NextResponse.json({ error: 'Tidak terotentikasi' }, { status: 401 });
     }
 
     if (session.role !== 'PARTICIPANT') {
-      return NextResponse.json({ error: 'Forbidden. Not a participant session.' }, { status: 403 });
+      return NextResponse.json({ error: 'Akses ditolak. Bukan sesi peserta.' }, { status: 403 });
     }
 
     const user = getUserById(session.userId);
     if (!user) {
-      return NextResponse.json({ error: 'User record not found' }, { status: 404 });
+      return NextResponse.json({ error: 'Data peserta tidak ditemukan' }, { status: 404 });
     }
 
     // STRICT PRIVACY GUARANTEE: Only return current user's name & group number
@@ -24,8 +24,9 @@ export async function GET() {
       name: user.name,
       groupNumber: user.group_number,
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Participant API error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return NextResponse.json({ error: 'Terjadi kesalahan pada server' }, { status: 500 });
   }
 }
+

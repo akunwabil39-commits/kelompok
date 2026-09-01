@@ -27,14 +27,21 @@ export async function middleware(request: NextRequest) {
     }
   }
 
-  // 1. Strict Admin Dashboard Protection: Instantly redirect to homepage if not an authenticated ADMIN
-  if (pathname.startsWith('/admin')) {
-    if (!session || session.role !== 'ADMIN') {
-      return NextResponse.redirect(new URL('/', request.url));
+  // 1. If admin is already logged in and visits /hidden-admin-access, forward directly to /admin
+  if (pathname === '/hidden-admin-access') {
+    if (session && session.role === 'ADMIN') {
+      return NextResponse.redirect(new URL('/admin', request.url));
     }
   }
 
-  // 2. Participant Dashboard Isolation: Redirect to homepage if not an authenticated PARTICIPANT
+  // 2. Strict Admin Dashboard Protection: Redirect to /hidden-admin-access if not an authenticated ADMIN
+  if (pathname.startsWith('/admin')) {
+    if (!session || session.role !== 'ADMIN') {
+      return NextResponse.redirect(new URL('/hidden-admin-access', request.url));
+    }
+  }
+
+  // 3. Participant Dashboard Isolation: Redirect to homepage if not an authenticated PARTICIPANT
   if (pathname.startsWith('/dashboard')) {
     if (!session || session.role !== 'PARTICIPANT') {
       return NextResponse.redirect(new URL('/', request.url));
@@ -45,5 +52,5 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/admin/:path*', '/dashboard/:path*'],
+  matcher: ['/admin/:path*', '/dashboard/:path*', '/hidden-admin-access'],
 };

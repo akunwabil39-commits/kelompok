@@ -1,0 +1,40 @@
+// Prisma Schema for PostgreSQL
+// Generator and Datasource Definition
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Gender {
+  MALE
+  FEMALE
+}
+
+enum Role {
+  ADMIN
+  PARTICIPANT
+}
+
+model Participant {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique
+  gender      Gender
+  role        Role     @default(PARTICIPANT)
+  groupNumber Int?     @map("group_number")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@map("participants")
+}
+
+model Setting {
+  id          Int @id @default(1)
+  totalGroups Int @default(4) @map("total_groups")
+  maxPerGroup Int @default(10) @map("max_per_group")
+
+  @@map("settings")
+}

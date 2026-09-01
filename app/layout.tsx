@@ -17,8 +17,8 @@ const sansFont = Inter({
 });
 
 export const metadata: Metadata = {
-  title: 'Secret Group Assignment | Confidential & Balanced Allocation',
-  description: 'Secure, modern, and confidential group assignment platform with automated gender-balanced allocation.',
+  title: 'Pembagian Kelompok Rahasia | Alokasi Seimbang & Rahasia',
+  description: 'Platform pembagian kelompok rahasia yang aman, modern, dan otomatis terdistribusi merata berdasarkan jenis kelamin.',
 };
 
 export default function RootLayout({
@@ -27,7 +27,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className={`${headingFont.variable} ${sansFont.variable} h-full antialiased`}>
+    <html lang="id" className={`${headingFont.variable} ${sansFont.variable} h-full antialiased`}>
       <body className="min-h-full flex flex-col bg-[#FBFBFA] text-[#111111] font-sans selection:bg-[#B4E50D] selection:text-[#111111]">
         {children}
       </body>

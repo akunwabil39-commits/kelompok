@@ -1,14 +1,48 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Shield, Lock, AlertCircle, ArrowRight } from 'lucide-react';
+import { Lock, AlertCircle, ArrowRight } from 'lucide-react';
 
 export default function HiddenAdminAccessPage() {
   const router = useRouter();
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [checkingAuth, setCheckingAuth] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Auto-check if admin session is already active on mount/refresh
+  useEffect(() => {
+    let ignore = false;
+
+    async function checkExistingAdminSession() {
+      try {
+        const res = await fetch('/api/auth/me');
+        if (res.ok) {
+          const data = await res.json();
+          if (data.authenticated && data.user?.role === 'ADMIN') {
+            if (typeof window !== 'undefined') {
+              localStorage.setItem('sga_admin_logged_in', 'true');
+            }
+            router.replace('/admin');
+            return;
+          }
+        }
+      } catch {
+        // Continue to show password form
+      } finally {
+        if (!ignore) {
+          setCheckingAuth(false);
+        }
+      }
+    }
+
+    void checkExistingAdminSession();
+
+    return () => {
+      ignore = true;
+    };
+  }, [router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -27,16 +61,31 @@ export default function HiddenAdminAccessPage() {
       const data = await res.json();
 
       if (res.ok && data.success) {
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('sga_admin_logged_in', 'true');
+        }
         router.push(data.redirect || '/admin');
+        router.refresh();
       } else {
-        setError(data.message || 'Invalid administrator password.');
+        setError(data.message || 'Password admin tidak valid.');
       }
     } catch {
-      setError('Connection error. Please try again.');
+      setError('Kendala koneksi. Silakan coba lagi.');
     } finally {
       setLoading(false);
     }
   };
+
+  if (checkingAuth) {
+    return (
+      <main className="min-h-screen flex items-center justify-center bg-[#FBFBFA]">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-8 h-8 border-3 border-[#111111] border-t-[#B4E50D] rounded-full animate-spin" />
+          <span className="text-xs font-medium text-neutral-500">Memeriksa sesi login admin...</span>
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main className="relative min-h-screen flex flex-col items-center justify-center p-4 sm:p-6 md:p-8 bg-[#FBFBFA] text-[#111111] selection:bg-[#B4E50D] selection:text-[#111111]">
@@ -50,16 +99,16 @@ export default function HiddenAdminAccessPage() {
           <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-white border border-neutral-200 shadow-sm mb-4">
             <div className="w-2 h-2 rounded-full bg-[#FB4141]" />
             <span className="text-xs font-bold uppercase tracking-widest text-[#111111]">
-              Restricted Area
+              Area Terbatas
             </span>
           </div>
 
           <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-[#111111] font-heading">
-            Admin Access Portal
+            Portal Akses Admin
           </h1>
           <div className="w-10 h-1 bg-[#FB4141] mx-auto mt-2.5 rounded-full opacity-80" />
           <p className="text-neutral-500 text-xs sm:text-sm mt-2.5 font-medium">
-            Enter your authorized master password to manage group allocations.
+            Masukkan password master administrator untuk mengelola alokasi kelompok.
           </p>
         </div>
 
@@ -80,7 +129,7 @@ export default function HiddenAdminAccessPage() {
                 htmlFor="admin-password"
                 className="block text-xs font-bold uppercase tracking-wider text-[#111111] mb-2"
               >
-                Master Admin Password
+                Password Master Admin
               </label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-neutral-400">
@@ -91,7 +140,7 @@ export default function HiddenAdminAccessPage() {
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Enter administrator password..."
+                  placeholder="Masukkan password admin..."
                   required
                   autoFocus
                   autoComplete="current-password"
@@ -109,7 +158,7 @@ export default function HiddenAdminAccessPage() {
                 <div className="w-4 h-4 border-2 border-[#111111]/30 border-t-[#111111] rounded-full animate-spin" />
               ) : (
                 <>
-                  <span>Unlock Admin Control Center</span>
+                  <span>Buka Pusat Kontrol Admin</span>
                   <ArrowRight className="w-4 h-4" />
                 </>
               )}
@@ -118,7 +167,7 @@ export default function HiddenAdminAccessPage() {
 
           <div className="mt-6 pt-5 border-t border-neutral-200 text-center">
             <span className="text-[11px] text-neutral-400 font-medium">
-              Secure HTTP-Only Session • Server-Side Verification
+              Sesi HTTP-Only Aman • Verifikasi Sisi Server
             </span>
           </div>
         </div>

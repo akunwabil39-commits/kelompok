@@ -35,8 +35,9 @@ export async function GET() {
         groupNumber: user.role === 'PARTICIPANT' ? user.group_number : null,
       },
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Me endpoint error:', error);
-    return NextResponse.json({ authenticated: false, error: 'Server error' }, { status: 500 });
+    return NextResponse.json({ authenticated: false, error: 'Terjadi kesalahan pada server' }, { status: 500 });
   }
 }
+

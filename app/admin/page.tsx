@@ -17,6 +17,7 @@ import {
   X,
   Shield,
   Sliders,
+  Shuffle,
 } from 'lucide-react';
 
 interface Participant {
@@ -58,6 +59,9 @@ export default function AdminDashboard() {
   const [error, setError] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
 
+  // Auto-Shuffle State
+  const [shuffling, setShuffling] = useState(false);
+
   // Group Settings State
   const [totalGroupsInput, setTotalGroupsInput] = useState('4');
   const [maxPerGroupInput, setMaxPerGroupInput] = useState('10');
@@ -81,14 +85,15 @@ export default function AdminDashboard() {
 
   const [loggingOut, setLoggingOut] = useState(false);
 
-  // Fetch all participants & stats
+  // Fetch all participants & stats for manual refresh or post-actions
   const fetchData = async () => {
     try {
-      setError(null);
       const res = await fetch('/api/admin/participants');
       if (res.status === 401 || res.status === 403) {
-        // Strictly redirect to homepage if unauthorized
-        router.replace('/');
+        if (typeof window !== 'undefined') {
+          localStorage.removeItem('sga_admin_logged_in');
+        }
+        router.replace('/hidden-admin-access');
         return;
       }
       const data = await res.json();
@@ -99,28 +104,75 @@ export default function AdminDashboard() {
           setTotalGroupsInput(data.stats.settings.totalGroups.toString());
           setMaxPerGroupInput(data.stats.settings.maxPerGroup.toString());
         }
+        setError(null);
       } else {
-        router.replace('/');
+        router.replace('/hidden-admin-access');
       }
     } catch {
-      setError('Network error fetching admin data');
+      setError('Kendala jaringan saat mengambil data admin');
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchData();
-  }, []);
+    let ignore = false;
+
+    async function initialLoad() {
+      try {
+        const res = await fetch('/api/admin/participants');
+        if (res.status === 401 || res.status === 403) {
+          if (typeof window !== 'undefined') {
+            localStorage.removeItem('sga_admin_logged_in');
+          }
+          router.replace('/hidden-admin-access');
+          return;
+        }
+        const data = await res.json();
+        if (ignore) return;
+        if (data.success) {
+          if (typeof window !== 'undefined') {
+            localStorage.setItem('sga_admin_logged_in', 'true');
+          }
+          setParticipants(data.participants || []);
+          setStats(data.stats || null);
+          if (data.stats?.settings) {
+            setTotalGroupsInput(data.stats.settings.totalGroups.toString());
+            setMaxPerGroupInput(data.stats.settings.maxPerGroup.toString());
+          }
+          setError(null);
+        } else {
+          router.replace('/hidden-admin-access');
+        }
+      } catch {
+        if (!ignore) {
+          setError('Kendala jaringan saat mengambil data admin');
+        }
+      } finally {
+        if (!ignore) {
+          setLoading(false);
+        }
+      }
+    }
+
+    void initialLoad();
+
+    return () => {
+      ignore = true;
+    };
+  }, [router]);
 
   const handleLogout = async () => {
     setLoggingOut(true);
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('sga_admin_logged_in');
+    }
     try {
       await fetch('/api/auth/logout', { method: 'POST' });
     } catch (err) {
       console.error(err);
     } finally {
-      router.replace('/');
+      router.replace('/hidden-admin-access');
     }
   };
 
@@ -131,11 +183,11 @@ export default function AdminDashboard() {
     const mpg = parseInt(maxPerGroupInput, 10);
 
     if (isNaN(tg) || tg < 2 || tg > 30) {
-      setError('Total Groups must be between 2 and 30.');
+      setError('Jumlah Kelompok harus antara 2 dan 30.');
       return;
     }
     if (isNaN(mpg) || mpg < 1 || mpg > 200) {
-      setError('Max Per Group must be between 1 and 200.');
+      setError('Maksimal Per Kelompok harus antara 1 dan 200.');
       return;
     }
 
@@ -155,14 +207,14 @@ export default function AdminDashboard() {
 
       const data = await res.json();
       if (res.ok && data.success) {
-        setActionSuccess(`Settings updated: ${tg} Total Groups, Max ${mpg} members per group.`);
+        setActionSuccess(`Pengaturan diperbarui: ${tg} Kelompok, Maksimal ${mpg} anggota per kelompok.`);
         await fetchData();
         setTimeout(() => setActionSuccess(null), 3500);
       } else {
-        setError(data.error || 'Failed to save settings');
+        setError(data.error || 'Gagal menyimpan pengaturan');
       }
     } catch {
-      setError('Error saving settings');
+      setError('Terjadi kendala saat menyimpan pengaturan');
     } finally {
       setSavingSettings(false);
     }
@@ -172,7 +224,7 @@ export default function AdminDashboard() {
   const handleAddParticipant = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newName.trim()) {
-      setError('Please enter a participant name.');
+      setError('Silakan masukkan nama peserta.');
       return;
     }
 
@@ -194,16 +246,16 @@ export default function AdminDashboard() {
 
       const data = await res.json();
       if (!res.ok || !data.success) {
-        setError(data.error || 'Failed to add participant');
+        setError(data.error || 'Gagal menambahkan peserta');
       } else {
-        setActionSuccess(data.message || 'Participant registered successfully!');
+        setActionSuccess(data.message || 'Peserta berhasil didaftarkan!');
         setNewName('');
         setNewGroup('');
         await fetchData();
         setTimeout(() => setActionSuccess(null), 3000);
       }
     } catch {
-      setError('Failed to add participant.');
+      setError('Gagal menambahkan peserta.');
     } finally {
       setSubmitting(false);
     }
@@ -211,7 +263,7 @@ export default function AdminDashboard() {
 
   // Delete Participant
   const handleDelete = async (id: number, name: string) => {
-    if (!window.confirm(`Are you sure you want to remove "${name}"?`)) {
+    if (!window.confirm(`Apakah Anda yakin ingin menghapus peserta "${name}"?`)) {
       return;
     }
 
@@ -222,14 +274,14 @@ export default function AdminDashboard() {
       });
       const data = await res.json();
       if (!res.ok || !data.success) {
-        setError(data.error || 'Failed to delete participant');
+        setError(data.error || 'Gagal menghapus peserta');
       } else {
-        setActionSuccess(`Removed "${name}".`);
+        setActionSuccess(`Peserta "${name}" berhasil dihapus.`);
         await fetchData();
         setTimeout(() => setActionSuccess(null), 3000);
       }
     } catch {
-      setError('Failed to delete participant.');
+      setError('Gagal menghapus peserta.');
     }
   };
 
@@ -257,25 +309,25 @@ export default function AdminDashboard() {
 
       const data = await res.json();
       if (!res.ok || !data.success) {
-        setError(data.error || 'Failed to reassign participant');
+        setError(data.error || 'Gagal memperbarui kelompok');
       } else {
-        setActionSuccess(`Reassigned "${editingParticipant.name}" to Group ${reassignGroup}.`);
+        setActionSuccess(`Berhasil memindahkan "${editingParticipant.name}" ke Kelompok ${reassignGroup}.`);
         setEditingParticipant(null);
         await fetchData();
         setTimeout(() => setActionSuccess(null), 3000);
       }
     } catch {
-      setError('Failed to reassign participant');
+      setError('Gagal memperbarui kelompok');
     } finally {
       setEditSubmitting(false);
     }
   };
 
-  // Clear Roster (Critical action using Brand Coral)
+  // Clear Roster (Critical action)
   const handleClearRoster = async () => {
     if (
       !window.confirm(
-        'WARNING: Are you sure you want to clear the entire participant roster? This action cannot be undone.'
+        'PERINGATAN: Apakah Anda yakin ingin mengosongkan seluruh daftar peserta? Tindakan ini tidak dapat dibatalkan.'
       )
     ) {
       return;
@@ -289,14 +341,52 @@ export default function AdminDashboard() {
       });
       const data = await res.json();
       if (res.ok && data.success) {
-        setActionSuccess('Participant roster cleared successfully.');
+        setActionSuccess('Seluruh daftar peserta berhasil dikosongkan.');
         await fetchData();
         setTimeout(() => setActionSuccess(null), 3000);
       } else {
-        setError(data.error || 'Failed to clear roster');
+        setError(data.error || 'Gagal mengosongkan daftar peserta');
       }
     } catch {
-      setError('Failed to clear roster');
+      setError('Gagal mengosongkan daftar peserta');
+    }
+  };
+
+  // Auto-Shuffle All Participants (Randomized Balanced Gender Distribution)
+  const handleAutoShuffle = async () => {
+    if (participants.length === 0) {
+      setError('Tidak ada peserta di dalam daftar untuk diacak.');
+      return;
+    }
+
+    if (
+      !window.confirm(
+        'Apakah Anda yakin ingin mengacak otomatis seluruh kelompok peserta? Pembagian kelompok akan didistribusikan secara adil dan seimbang berdasarkan jenis kelamin.'
+      )
+    ) {
+      return;
+    }
+
+    setShuffling(true);
+    setError(null);
+    setActionSuccess(null);
+
+    try {
+      const res = await fetch('/api/admin/shuffle', {
+        method: 'POST',
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        setError(data.error || 'Gagal mengacak kelompok');
+      } else {
+        setActionSuccess(data.message || 'Kelompok berhasil diacak secara otomatis dan seimbang!');
+        await fetchData();
+        setTimeout(() => setActionSuccess(null), 4000);
+      }
+    } catch {
+      setError('Terjadi kendala jaringan saat mengacak kelompok.');
+    } finally {
+      setShuffling(false);
     }
   };
 
@@ -305,6 +395,7 @@ export default function AdminDashboard() {
     return participants.filter((p) => {
       const matchesSearch =
         p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        `kelompok ${p.group_number}`.toLowerCase().includes(searchTerm.toLowerCase()) ||
         `group ${p.group_number}`.toLowerCase().includes(searchTerm.toLowerCase());
 
       const matchesGroup =
@@ -320,11 +411,11 @@ export default function AdminDashboard() {
   // Export to CSV
   const handleExportCSV = () => {
     if (participants.length === 0) return;
-    const headers = ['ID', 'Participant Name', 'Gender', 'Assigned Group', 'Registered Time'];
+    const headers = ['ID', 'Nama Peserta', 'Jenis Kelamin', 'Kelompok', 'Waktu Terdaftar'];
     const rows = participants.map((p) => [
       p.id,
       `"${p.name.replace(/"/g, '""')}"`,
-      p.gender,
+      p.gender === 'FEMALE' ? 'Perempuan' : 'Laki-laki',
       p.group_number,
       `"${p.created_at}"`,
     ]);
@@ -333,7 +424,7 @@ export default function AdminDashboard() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.setAttribute('href', url);
-    link.setAttribute('download', `gender_balanced_groups_${new Date().toISOString().split('T')[0]}.csv`);
+    link.setAttribute('download', `kelompok_seimbang_gender_${new Date().toISOString().split('T')[0]}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -353,7 +444,7 @@ export default function AdminDashboard() {
       <div className="min-h-screen bg-[#FBFBFA] flex flex-col items-center justify-center p-4">
         <div className="flex flex-col items-center gap-3">
           <div className="w-10 h-10 border-3 border-[#111111] border-t-[#B4E50D] rounded-full animate-spin" />
-          <span className="text-sm font-medium text-neutral-600">Loading Administrator Dashboard...</span>
+          <span className="text-sm font-medium text-neutral-600">Memuat Dashboard Administrator...</span>
         </div>
       </div>
     );
@@ -371,15 +462,15 @@ export default function AdminDashboard() {
             <div>
               <div className="flex items-center gap-2.5">
                 <span className="font-extrabold text-[#111111] text-sm sm:text-base font-heading">
-                  Admin Control Center
+                  Pusat Kontrol Admin
                 </span>
-                {/* Active Brand Lime status badge */}
+                {/* Status badge */}
                 <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-[#B4E50D] text-[#111111] border border-[#9ecc09] shadow-2xs">
-                  GENDER-BALANCED ENGINE
+                  MESIN SEIMBANG GENDER
                 </span>
               </div>
               <span className="text-[11px] text-neutral-500 hidden sm:block font-medium">
-                Auto-Allocation & Capacity Configuration
+                Konfigurasi Kapasitas & Alokasi Otomatis
               </span>
             </div>
           </div>
@@ -387,7 +478,7 @@ export default function AdminDashboard() {
           <div className="flex items-center gap-2 sm:gap-3">
             <button
               onClick={fetchData}
-              title="Refresh Data"
+              title="Segarkan Data"
               className="p-2 rounded-xl bg-[#FBFBFA] hover:bg-neutral-100 border border-neutral-200 text-neutral-600 hover:text-[#111111] transition cursor-pointer"
             >
               <RefreshCw className="w-4 h-4" />
@@ -398,7 +489,7 @@ export default function AdminDashboard() {
               className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white hover:bg-red-50 border border-neutral-300 hover:border-[#FB4141]/40 text-neutral-700 hover:text-[#FB4141] text-xs sm:text-sm font-semibold transition cursor-pointer"
             >
               <LogOut className="w-4 h-4" />
-              <span>Logout</span>
+              <span>Keluar</span>
             </button>
           </div>
         </div>
@@ -411,7 +502,7 @@ export default function AdminDashboard() {
           <div className="p-4 rounded-xl bg-red-50 border border-[#FB4141]/30 flex items-start gap-3 text-red-800 text-sm animate-in fade-in duration-200">
             <AlertCircle className="w-5 h-5 text-[#FB4141] shrink-0 mt-0.5" />
             <div className="flex-1">
-              <span className="font-bold block">Notice</span>
+              <span className="font-bold block">Pemberitahuan</span>
               <p className="font-medium">{error}</p>
             </div>
             <button
@@ -438,7 +529,7 @@ export default function AdminDashboard() {
             </div>
             <div>
               <span className="text-xs font-bold text-neutral-500 uppercase tracking-wider block">
-                Total Registered
+                Total Terdaftar
               </span>
               <span className="text-2xl sm:text-3xl font-extrabold text-[#111111] font-heading">
                 {stats?.totalParticipants ?? participants.length}
@@ -452,7 +543,7 @@ export default function AdminDashboard() {
             </div>
             <div>
               <span className="text-xs font-bold text-neutral-500 uppercase tracking-wider block">
-                Total Males
+                Total Laki-laki
               </span>
               <span className="text-2xl sm:text-3xl font-extrabold text-[#111111] font-heading">
                 {stats?.totalMales ?? 0}
@@ -466,7 +557,7 @@ export default function AdminDashboard() {
             </div>
             <div>
               <span className="text-xs font-bold text-neutral-500 uppercase tracking-wider block">
-                Total Females
+                Total Perempuan
               </span>
               <span className="text-2xl sm:text-3xl font-extrabold text-[#111111] font-heading">
                 {stats?.totalFemales ?? 0}
@@ -480,7 +571,7 @@ export default function AdminDashboard() {
             </div>
             <div>
               <span className="text-xs font-bold text-neutral-500 uppercase tracking-wider block">
-                System Capacity
+                Kapasitas Sistem
               </span>
               <span className="text-2xl sm:text-3xl font-extrabold text-[#111111] font-heading">
                 {stats?.totalParticipants ?? 0} / {stats?.totalCapacity ?? 0}
@@ -497,10 +588,10 @@ export default function AdminDashboard() {
             </div>
             <div>
               <h2 className="text-lg font-bold text-[#111111] font-heading">
-                Group Settings & Allocation Parameters
+                Pengaturan Kelompok & Parameter Alokasi
               </h2>
               <p className="text-xs text-neutral-500 font-medium">
-                Configure total groups and maximum capacity per group. The server uses these limits to enforce balanced auto-allocation.
+                Atur jumlah kelompok dan kapasitas maksimal per kelompok. Server menggunakan batas ini untuk menjalankan alokasi otomatis yang seimbang.
               </p>
             </div>
           </div>
@@ -508,7 +599,7 @@ export default function AdminDashboard() {
           <form onSubmit={handleSaveSettings} className="grid grid-cols-1 sm:grid-cols-12 gap-4 items-end">
             <div className="sm:col-span-5">
               <label className="block text-xs font-bold text-[#111111] uppercase tracking-wider mb-1.5">
-                Total Groups (`totalGroups`)
+                Jumlah Kelompok (totalGroups)
               </label>
               <input
                 type="number"
@@ -519,12 +610,12 @@ export default function AdminDashboard() {
                 required
                 className="w-full px-3.5 py-2.5 bg-[#FBFBFA] border border-neutral-300 rounded-xl text-[#111111] font-mono text-sm font-medium focus:outline-none focus:bg-white focus:ring-2 focus:ring-[#B4E50D] focus:border-[#111111]"
               />
-              <span className="text-[11px] text-neutral-500 block mt-1">Number of active groups (e.g. 4)</span>
+              <span className="text-[11px] text-neutral-500 block mt-1">Jumlah kelompok aktif (misal: 4)</span>
             </div>
 
             <div className="sm:col-span-5">
               <label className="block text-xs font-bold text-[#111111] uppercase tracking-wider mb-1.5">
-                Max Members Per Group (`maxPerGroup`)
+                Maksimal Peserta Per Kelompok (maxPerGroup)
               </label>
               <input
                 type="number"
@@ -535,17 +626,16 @@ export default function AdminDashboard() {
                 required
                 className="w-full px-3.5 py-2.5 bg-[#FBFBFA] border border-neutral-300 rounded-xl text-[#111111] font-mono text-sm font-medium focus:outline-none focus:bg-white focus:ring-2 focus:ring-[#B4E50D] focus:border-[#111111]"
               />
-              <span className="text-[11px] text-neutral-500 block mt-1">Capacity cap per group (e.g. 10)</span>
+              <span className="text-[11px] text-neutral-500 block mt-1">Batas kapasitas per kelompok (misal: 10)</span>
             </div>
 
             <div className="sm:col-span-2">
-              {/* Solid Brand Lime Save Settings Button */}
               <button
                 type="submit"
                 disabled={savingSettings}
                 className="w-full py-2.5 px-4 bg-[#B4E50D] hover:bg-[#a8db0a] text-[#111111] font-extrabold text-sm rounded-xl shadow-sm transition btn-lift flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 border border-[#9ecc09]"
               >
-                {savingSettings ? 'Saving...' : 'Save Settings'}
+                {savingSettings ? 'Menyimpan...' : 'Simpan Pengaturan'}
               </button>
             </div>
           </form>
@@ -557,14 +647,14 @@ export default function AdminDashboard() {
             <div>
               <h3 className="text-base font-bold text-[#111111] flex items-center gap-2 font-heading">
                 <Layers className="w-4 h-4 text-[#111111]" />
-                Gender-Balanced Group Distribution Verification
+                Verifikasi Distribusi Kelompok Seimbang Gender
               </h3>
               <p className="text-xs text-neutral-500 mt-0.5 font-medium">
-                Real-time breakdown of Male ♂ and Female ♀ allocation across each active group.
+                Rincian alokasi Laki-laki ♂ dan Perempuan ♀ secara realtime di setiap kelompok aktif.
               </p>
             </div>
             <span className="text-xs font-mono font-bold text-[#111111] bg-neutral-100 px-3 py-1 rounded-full border border-neutral-200 w-fit">
-              Capacity: {stats?.settings?.maxPerGroup || 10} / group
+              Kapasitas: {stats?.settings?.maxPerGroup || 10} / kelompok
             </span>
           </div>
 
@@ -581,7 +671,7 @@ export default function AdminDashboard() {
                 <div className="flex items-center justify-between mb-3">
                   <span className="font-extrabold text-sm text-[#111111] flex items-center gap-1.5 font-heading">
                     <span className="w-2 h-2 rounded-full bg-[#111111]" />
-                    Group {g.group_number}
+                    Kelompok {g.group_number}
                   </span>
                   <span
                     className={`text-[11px] font-mono font-bold px-2 py-0.5 rounded-full ${
@@ -590,22 +680,22 @@ export default function AdminDashboard() {
                         : 'bg-white text-[#111111] border border-neutral-200'
                     }`}
                   >
-                    {g.isFull ? 'FULL' : `${g.total}/${g.maxCapacity}`}
+                    {g.isFull ? 'PENUH' : `${g.total}/${g.maxCapacity}`}
                   </span>
                 </div>
 
-                {/* Male vs Female Counts using Soft Derived Shades */}
+                {/* Male vs Female Counts */}
                 <div className="grid grid-cols-2 gap-2 my-2.5 text-xs">
                   <div className="p-2 rounded-lg bg-[#F4FBDB] border border-[#B4E50D]/40 text-[#111111] flex items-center justify-between">
                     <span className="font-semibold flex items-center gap-1">
-                      <span>♂</span> Male:
+                      <span>♂</span> Laki-laki:
                     </span>
                     <span className="font-mono font-extrabold">{g.males}</span>
                   </div>
 
                   <div className="p-2 rounded-lg bg-[#FFEBEB] border border-[#FB4141]/20 text-[#111111] flex items-center justify-between">
                     <span className="font-semibold flex items-center gap-1">
-                      <span>♀</span> Female:
+                      <span>♀</span> Perempuan:
                     </span>
                     <span className="font-mono font-extrabold">{g.females}</span>
                   </div>
@@ -622,8 +712,8 @@ export default function AdminDashboard() {
                 </div>
 
                 <div className="flex items-center justify-between text-[11px] text-neutral-500 mt-1.5 font-mono">
-                  <span>{g.percentageFilled}% filled</span>
-                  <span>{g.maxCapacity - g.total} spots left</span>
+                  <span>{g.percentageFilled}% terisi</span>
+                  <span>{g.maxCapacity - g.total} sisa kursi</span>
                 </div>
               </div>
             ))}
@@ -637,9 +727,9 @@ export default function AdminDashboard() {
               <UserPlus className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-lg font-bold text-[#111111] font-heading">Manual Add Participant</h2>
+              <h2 className="text-lg font-bold text-[#111111] font-heading">Tambah Peserta Manual</h2>
               <p className="text-xs text-neutral-500 font-medium">
-                Directly register a participant. Leave group blank to let the gender-balanced algorithm assign them automatically.
+                Daftarkan peserta secara langsung. Kosongkan nomor kelompok agar algoritma seimbang gender menempatkannya secara otomatis.
               </p>
             </div>
           </div>
@@ -647,13 +737,13 @@ export default function AdminDashboard() {
           <form onSubmit={handleAddParticipant} className="grid grid-cols-1 sm:grid-cols-12 gap-4 items-end">
             <div className="sm:col-span-5">
               <label className="block text-xs font-bold text-[#111111] uppercase tracking-wider mb-1.5">
-                Participant Name
+                Nama Peserta
               </label>
               <input
                 type="text"
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
-                placeholder="e.g. Jordan Lee"
+                placeholder="Contoh: Jordan Lee"
                 required
                 className="w-full px-3.5 py-2.5 bg-[#FBFBFA] border border-neutral-300 rounded-xl text-[#111111] placeholder-neutral-400 text-sm focus:outline-none focus:bg-white focus:ring-2 focus:ring-[#B4E50D] focus:border-[#111111]"
               />
@@ -661,21 +751,21 @@ export default function AdminDashboard() {
 
             <div className="sm:col-span-3">
               <label className="block text-xs font-bold text-[#111111] uppercase tracking-wider mb-1.5">
-                Gender
+                Jenis Kelamin
               </label>
               <select
                 value={newGender}
                 onChange={(e) => setNewGender(e.target.value as 'MALE' | 'FEMALE')}
                 className="w-full px-3.5 py-2.5 bg-[#FBFBFA] border border-neutral-300 rounded-xl text-[#111111] text-sm focus:outline-none focus:bg-white focus:ring-2 focus:ring-[#B4E50D] focus:border-[#111111] cursor-pointer font-medium"
               >
-                <option value="MALE">♂ Male</option>
-                <option value="FEMALE">♀ Female</option>
+                <option value="MALE">♂ Laki-laki</option>
+                <option value="FEMALE">♀ Perempuan</option>
               </select>
             </div>
 
             <div className="sm:col-span-2">
               <label className="block text-xs font-bold text-[#111111] uppercase tracking-wider mb-1.5">
-                Group (Optional)
+                Kelompok (Opsional)
               </label>
               <input
                 type="number"
@@ -683,7 +773,7 @@ export default function AdminDashboard() {
                 max={totalConfiguredGroups}
                 value={newGroup}
                 onChange={(e) => setNewGroup(e.target.value)}
-                placeholder="Auto"
+                placeholder="Otomatis"
                 className="w-full px-3.5 py-2.5 bg-[#FBFBFA] border border-neutral-300 rounded-xl text-[#111111] placeholder-neutral-400 text-sm font-mono focus:outline-none focus:bg-white focus:ring-2 focus:ring-[#B4E50D] focus:border-[#111111]"
               />
             </div>
@@ -694,7 +784,7 @@ export default function AdminDashboard() {
                 disabled={submitting}
                 className="w-full py-2.5 px-4 bg-[#B4E50D] hover:bg-[#a8db0a] text-[#111111] font-extrabold text-sm rounded-xl shadow-sm transition btn-lift flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 border border-[#9ecc09]"
               >
-                {submitting ? '...' : 'Add'}
+                {submitting ? '...' : 'Tambah'}
               </button>
             </div>
           </form>
@@ -706,13 +796,13 @@ export default function AdminDashboard() {
           <div className="p-5 sm:p-6 border-b border-neutral-200 flex flex-col md:flex-row gap-4 items-start md:items-center justify-between">
             <div>
               <h2 className="text-lg font-bold text-[#111111] flex items-center gap-2 font-heading">
-                <span>Master Participant Roster</span>
+                <span>Daftar Master Peserta</span>
                 <span className="text-xs px-2.5 py-0.5 rounded-full bg-neutral-100 text-neutral-700 font-mono font-bold border border-neutral-200">
-                  {filteredParticipants.length} entries
+                  {filteredParticipants.length} data
                 </span>
               </h2>
               <p className="text-xs text-neutral-500 mt-0.5 font-medium">
-                Complete roster with Gender and Auto-Assigned Groups.
+                Daftar lengkap peserta beserta Jenis Kelamin dan Kelompok yang Ditentukan Otomatis.
               </p>
             </div>
 
@@ -724,7 +814,7 @@ export default function AdminDashboard() {
                   type="text"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  placeholder="Search name/group..."
+                  placeholder="Cari nama/kelompok..."
                   className="w-full pl-9 pr-3 py-2 bg-[#FBFBFA] border border-neutral-300 rounded-xl text-[#111111] placeholder-neutral-400 text-xs font-medium focus:outline-none focus:bg-white focus:ring-2 focus:ring-[#B4E50D] focus:border-[#111111]"
                 />
               </div>
@@ -735,9 +825,9 @@ export default function AdminDashboard() {
                 onChange={(e) => setSelectedGenderFilter(e.target.value)}
                 className="px-3 py-2 bg-[#FBFBFA] border border-neutral-300 rounded-xl text-[#111111] text-xs font-medium focus:outline-none focus:bg-white focus:ring-2 focus:ring-[#B4E50D] focus:border-[#111111] cursor-pointer"
               >
-                <option value="all">All Genders</option>
-                <option value="MALE">♂ Male</option>
-                <option value="FEMALE">♀ Female</option>
+                <option value="all">Semua Jenis Kelamin</option>
+                <option value="MALE">♂ Laki-laki</option>
+                <option value="FEMALE">♀ Perempuan</option>
               </select>
 
               {/* Group Filter */}
@@ -746,13 +836,25 @@ export default function AdminDashboard() {
                 onChange={(e) => setSelectedGroupFilter(e.target.value)}
                 className="px-3 py-2 bg-[#FBFBFA] border border-neutral-300 rounded-xl text-[#111111] text-xs font-medium focus:outline-none focus:bg-white focus:ring-2 focus:ring-[#B4E50D] focus:border-[#111111] cursor-pointer"
               >
-                <option value="all">All Groups</option>
+                <option value="all">Semua Kelompok</option>
                 {configuredGroupsList.map((g) => (
                   <option key={g} value={g.toString()}>
-                    Group {g}
+                    Kelompok {g}
                   </option>
                 ))}
               </select>
+
+              {/* Auto Shuffle Button */}
+              <button
+                type="button"
+                onClick={handleAutoShuffle}
+                disabled={shuffling || participants.length === 0}
+                className="px-3.5 py-2 rounded-xl bg-[#B4E50D] hover:bg-[#a8db0a] border border-[#9ecc09] text-[#111111] text-xs font-extrabold flex items-center gap-1.5 transition cursor-pointer btn-lift disabled:opacity-50 disabled:cursor-not-allowed shadow-2xs"
+                title="Acak otomatis seluruh peserta secara merata berdasarkan jenis kelamin"
+              >
+                <Shuffle className={`w-3.5 h-3.5 ${shuffling ? 'animate-spin' : ''}`} />
+                <span>{shuffling ? 'Mengacak...' : 'Acak Otomatis Kelompok'}</span>
+              </button>
 
               {/* Export CSV */}
               <button
@@ -761,17 +863,17 @@ export default function AdminDashboard() {
                 className="px-3.5 py-2 rounded-xl bg-neutral-100 hover:bg-neutral-200 border border-neutral-200 text-[#111111] text-xs font-bold flex items-center gap-1.5 transition cursor-pointer btn-lift"
               >
                 <Download className="w-3.5 h-3.5" />
-                <span>Export CSV</span>
+                <span>Ekspor CSV</span>
               </button>
 
-              {/* Clear Roster (Critical Action using Brand Coral) */}
+              {/* Clear Roster */}
               <button
                 type="button"
                 onClick={handleClearRoster}
                 className="px-3.5 py-2 rounded-xl bg-white hover:bg-red-50 border border-[#FB4141]/40 text-[#FB4141] text-xs font-bold flex items-center gap-1.5 transition cursor-pointer btn-lift"
               >
                 <Trash2 className="w-3.5 h-3.5 text-[#FB4141]" />
-                <span>Clear Roster</span>
+                <span>Kosongkan Roster</span>
               </button>
             </div>
           </div>
@@ -782,11 +884,11 @@ export default function AdminDashboard() {
               <thead>
                 <tr className="border-b border-neutral-200 bg-[#FBFBFA] text-[11px] uppercase tracking-wider font-extrabold text-neutral-500">
                   <th className="py-3.5 px-4 sm:px-6">#</th>
-                  <th className="py-3.5 px-4 sm:px-6">Participant Name</th>
-                  <th className="py-3.5 px-4 sm:px-6">Gender</th>
-                  <th className="py-3.5 px-4 sm:px-6">Assigned Group</th>
-                  <th className="py-3.5 px-4 sm:px-6">Joined Time</th>
-                  <th className="py-3.5 px-4 sm:px-6 text-right">Actions</th>
+                  <th className="py-3.5 px-4 sm:px-6">Nama Peserta</th>
+                  <th className="py-3.5 px-4 sm:px-6">Jenis Kelamin</th>
+                  <th className="py-3.5 px-4 sm:px-6">Kelompok</th>
+                  <th className="py-3.5 px-4 sm:px-6">Waktu Terdaftar</th>
+                  <th className="py-3.5 px-4 sm:px-6 text-right">Aksi</th>
                 </tr>
               </thead>
               <tbody className="text-sm">
@@ -794,9 +896,9 @@ export default function AdminDashboard() {
                   <tr>
                     <td colSpan={6} className="py-12 text-center text-neutral-500">
                       <Users className="w-8 h-8 text-neutral-300 mx-auto mb-2" />
-                      <p className="font-bold text-neutral-700">No participants found</p>
+                      <p className="font-bold text-neutral-700">Tidak ada data peserta</p>
                       <p className="text-xs text-neutral-400 mt-1">
-                        Participants who join via the homepage will appear here automatically.
+                        Peserta yang mendaftar melalui halaman utama akan muncul di sini secara otomatis.
                       </p>
                     </td>
                   </tr>
@@ -826,18 +928,18 @@ export default function AdminDashboard() {
                           }`}
                         >
                           <span>{p.gender === 'FEMALE' ? '♀' : '♂'}</span>
-                          <span>{p.gender}</span>
+                          <span>{p.gender === 'FEMALE' ? 'Perempuan' : 'Laki-laki'}</span>
                         </span>
                       </td>
                       <td className="py-4 px-4 sm:px-6">
                         <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-extrabold bg-[#FBFBFA] border border-neutral-300 text-[#111111]">
                           <span className="w-1.5 h-1.5 rounded-full bg-[#B4E50D] border border-[#111111]/30" />
-                          Group {p.group_number}
+                          Kelompok {p.group_number}
                         </span>
                       </td>
                       <td className="py-4 px-4 sm:px-6 text-xs text-neutral-500 font-mono">
-                        {new Date(p.created_at).toLocaleDateString()}{' '}
-                        {new Date(p.created_at).toLocaleTimeString([], {
+                        {new Date(p.created_at).toLocaleDateString('id-ID')}{' '}
+                        {new Date(p.created_at).toLocaleTimeString('id-ID', {
                           hour: '2-digit',
                           minute: '2-digit',
                         })}
@@ -846,14 +948,14 @@ export default function AdminDashboard() {
                         <div className="inline-flex items-center gap-1">
                           <button
                             onClick={() => openReassignModal(p)}
-                            title="Reassign Group"
+                            title="Ubah Kelompok"
                             className="p-1.5 rounded-lg hover:bg-neutral-200 text-neutral-500 hover:text-[#111111] transition cursor-pointer"
                           >
                             <Edit2 className="w-4 h-4" />
                           </button>
                           <button
                             onClick={() => handleDelete(p.id, p.name)}
-                            title="Remove Participant"
+                            title="Hapus Peserta"
                             className="p-1.5 rounded-lg hover:bg-red-50 text-neutral-500 hover:text-[#FB4141] transition cursor-pointer"
                           >
                             <Trash2 className="w-4 h-4" />
@@ -876,7 +978,7 @@ export default function AdminDashboard() {
             <div className="flex items-center justify-between pb-3 mb-4 border-b border-neutral-200">
               <h3 className="font-bold text-[#111111] text-base flex items-center gap-2 font-heading">
                 <Edit2 className="w-4 h-4 text-[#111111]" />
-                Reassign Group
+                Ubah Kelompok Peserta
               </h3>
               <button
                 onClick={() => setEditingParticipant(null)}
@@ -887,13 +989,13 @@ export default function AdminDashboard() {
             </div>
 
             <p className="text-xs text-neutral-600 mb-4 leading-relaxed">
-              Reassign <strong className="text-[#111111] font-bold">{editingParticipant.name}</strong> ({editingParticipant.gender}) to a new group:
+              Pindahkan peserta <strong className="text-[#111111] font-bold">{editingParticipant.name}</strong> ({editingParticipant.gender === 'FEMALE' ? 'Perempuan' : 'Laki-laki'}) ke kelompok baru:
             </p>
 
             <form onSubmit={handleReassignSubmit} className="space-y-4">
               <div>
                 <label className="block text-xs font-bold text-[#111111] uppercase mb-1.5">
-                  New Group Number
+                  Nomor Kelompok Baru
                 </label>
                 <input
                   type="number"
@@ -913,14 +1015,14 @@ export default function AdminDashboard() {
                   onClick={() => setEditingParticipant(null)}
                   className="px-3.5 py-2 rounded-xl bg-neutral-100 hover:bg-neutral-200 text-neutral-700 text-xs font-semibold cursor-pointer transition"
                 >
-                  Cancel
+                  Batal
                 </button>
                 <button
                   type="submit"
                   disabled={editSubmitting}
                   className="px-4 py-2 rounded-xl bg-[#B4E50D] hover:bg-[#a8db0a] text-[#111111] text-xs font-extrabold cursor-pointer disabled:opacity-50 flex items-center gap-1.5 border border-[#9ecc09] btn-lift"
                 >
-                  {editSubmitting ? 'Saving...' : 'Update Group'}
+                  {editSubmitting ? 'Menyimpan...' : 'Perbarui Kelompok'}
                 </button>
               </div>
             </form>

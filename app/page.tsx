@@ -29,9 +29,11 @@ export default function HomePage() {
 
   const handleJoin = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (loading) return; // Prevent double-submit / spam
+
     const trimmed = name.trim();
     if (!trimmed) {
-      setError('Please enter your name.');
+      setError('Silakan masukkan nama lengkap Anda.');
       return;
     }
 
@@ -48,7 +50,7 @@ export default function HomePage() {
       const data = await res.json();
 
       if (!res.ok || !data.success) {
-        setError(data.error || 'Failed to join. Please try again.');
+        setError(data.error || 'Gagal mendaftar. Silakan coba lagi.');
         setLoading(false);
         return;
       }
@@ -61,7 +63,7 @@ export default function HomePage() {
         isNew: data.isNew,
       });
     } catch {
-      setError('Connection error. Please check your network and try again.');
+      setError('Terjadi kendala koneksi. Silakan periksa jaringan dan coba lagi.');
     } finally {
       setLoading(false);
     }
@@ -90,22 +92,22 @@ export default function HomePage() {
       <div className="relative w-full max-w-lg mx-auto z-10">
         {/* Brand Header */}
         <div className="text-center mb-8">
-          {/* Logo Badge with subtle Brand Coral accent */}
+          {/* Logo Badge */}
           <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-white border border-neutral-200 shadow-sm mb-4">
             <div className="w-2 h-2 rounded-full bg-[#FB4141]" />
             <span className="text-xs font-bold uppercase tracking-widest text-[#111111]">
-              Secret Allocation
+              Alokasi Rahasia
             </span>
           </div>
 
           <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-[#111111] font-heading">
-            Secret Group Assignment
+            Pembagian Kelompok Rahasia
           </h1>
           <div className="w-12 h-1 bg-[#FB4141] mx-auto mt-3 rounded-full opacity-80" />
           <p className="text-neutral-500 text-sm mt-3 max-w-sm mx-auto leading-relaxed font-medium">
             {result
-              ? 'Your private group assignment is confirmed below.'
-              : 'Enter your name to be seamlessly placed into an automated, gender-balanced team.'}
+              ? 'Penempatan kelompok rahasia Anda telah dikonfirmasi di bawah ini.'
+              : 'Masukkan nama Anda untuk ditempatkan secara otomatis ke dalam kelompok yang seimbang.'}
           </p>
         </div>
 
@@ -129,7 +131,7 @@ export default function HomePage() {
                   htmlFor="name-input"
                   className="block text-xs font-bold uppercase tracking-wider text-[#111111] mb-2"
                 >
-                  Your Full Name
+                  Nama Lengkap
                 </label>
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-neutral-400">
@@ -140,11 +142,12 @@ export default function HomePage() {
                     type="text"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
-                    placeholder="e.g. Maya Lin"
+                    disabled={loading}
+                    placeholder="Contoh: Maya Lin"
                     required
                     autoFocus
                     autoComplete="name"
-                    className="w-full pl-11 pr-4 py-3.5 bg-[#FBFBFA] border border-neutral-300 rounded-xl text-[#111111] placeholder-neutral-400 text-base font-medium transition-all duration-200 focus:outline-none focus:bg-white focus:ring-2 focus:ring-[#B4E50D] focus:border-[#111111]"
+                    className="w-full pl-11 pr-4 py-3.5 bg-[#FBFBFA] border border-neutral-300 rounded-xl text-[#111111] placeholder-neutral-400 text-base font-medium transition-all duration-200 focus:outline-none focus:bg-white focus:ring-2 focus:ring-[#B4E50D] focus:border-[#111111] disabled:opacity-60 disabled:cursor-not-allowed"
                   />
                 </div>
               </div>
@@ -153,52 +156,57 @@ export default function HomePage() {
               <div>
                 <div className="flex items-center justify-between mb-2">
                   <label className="block text-xs font-bold uppercase tracking-wider text-[#111111]">
-                    Gender
+                    Jenis Kelamin
                   </label>
                   <span className="text-[11px] text-neutral-500 font-medium">
-                    Used for balanced allocation
+                    Digunakan untuk alokasi seimbang
                   </span>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <button
                     type="button"
+                    disabled={loading}
                     onClick={() => setGender('MALE')}
-                    className={`py-3 px-4 rounded-xl border flex items-center justify-center gap-2 text-sm font-semibold transition-all duration-200 cursor-pointer ${
+                    className={`py-3 px-4 rounded-xl border flex items-center justify-center gap-2 text-sm font-semibold transition-all duration-200 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed ${
                       gender === 'MALE'
                         ? 'bg-[#111111] border-[#111111] text-white shadow-sm'
                         : 'bg-[#FBFBFA] border-neutral-300 text-neutral-600 hover:text-[#111111] hover:bg-neutral-100/70 hover:border-neutral-400'
                     }`}
                   >
                     <span className="text-base font-bold">♂</span>
-                    <span>Male</span>
+                    <span>Laki-laki (Male)</span>
                   </button>
 
                   <button
                     type="button"
+                    disabled={loading}
                     onClick={() => setGender('FEMALE')}
-                    className={`py-3 px-4 rounded-xl border flex items-center justify-center gap-2 text-sm font-semibold transition-all duration-200 cursor-pointer ${
+                    className={`py-3 px-4 rounded-xl border flex items-center justify-center gap-2 text-sm font-semibold transition-all duration-200 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed ${
                       gender === 'FEMALE'
                         ? 'bg-[#111111] border-[#111111] text-white shadow-sm'
                         : 'bg-[#FBFBFA] border-neutral-300 text-neutral-600 hover:text-[#111111] hover:bg-neutral-100/70 hover:border-neutral-400'
                     }`}
                   >
                     <span className="text-base font-bold">♀</span>
-                    <span>Female</span>
+                    <span>Perempuan (Female)</span>
                   </button>
                 </div>
               </div>
 
-              {/* Primary Action Join Button (Solid Brand Lime with Text Dark) */}
+              {/* Primary Action Join Button */}
               <button
                 type="submit"
                 disabled={loading}
                 className="w-full py-4 px-5 bg-[#B4E50D] hover:bg-[#a8db0a] text-[#111111] font-extrabold text-base rounded-xl shadow-md btn-lift flex items-center justify-center gap-2.5 group cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed mt-3 border border-[#9ecc09]"
               >
                 {loading ? (
-                  <div className="w-5 h-5 border-2 border-[#111111]/30 border-t-[#111111] rounded-full animate-spin" />
+                  <>
+                    <div className="w-5 h-5 border-2 border-[#111111]/30 border-t-[#111111] rounded-full animate-spin" />
+                    <span>Memproses Pendaftaran...</span>
+                  </>
                 ) : (
                   <>
-                    <span>Join & Reveal Group</span>
+                    <span>Kirim & Buka Kelompok</span>
                     <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-1" />
                   </>
                 )}
@@ -213,32 +221,31 @@ export default function HomePage() {
 
             <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#B4E50D]/20 border border-[#B4E50D]/40 text-[#111111] text-xs font-bold mb-4">
               <CheckCircle2 className="w-3.5 h-3.5 text-[#111111]" />
-              <span>{result.isNew ? 'New Balanced Allocation' : 'Verified Assignment'}</span>
+              <span>{result.isNew ? 'Alokasi Seimbang Baru' : 'Penempatan Terverifikasi'}</span>
             </div>
 
-            {/* Prominent Personalized Greeting */}
+            {/* Personalized Greeting */}
             <h2 className="text-2xl sm:text-3xl font-extrabold text-[#111111] font-heading">
-              Hello, <span className="underline decoration-[#B4E50D] decoration-4 underline-offset-4">{result.name}</span>! 👋
+              Halo, <span className="underline decoration-[#B4E50D] decoration-4 underline-offset-4">{result.name}</span>! 👋
             </h2>
             <p className="text-neutral-500 text-xs mt-1 font-medium">
-              Your official assigned team is ready.
+              Kelompok resmi Anda telah ditentukan.
             </p>
 
-            {/* Enormous and Bold Group Number accented with Brand Lime */}
+            {/* Group Number accented with Brand Lime */}
             <div className="my-7">
               <span className="text-xs uppercase tracking-widest font-bold text-neutral-500 block mb-2">
-                Your Assigned Group
+                Kelompok Anda
               </span>
 
               <div className="relative inline-flex items-center justify-center my-2">
-                {/* Brand Lime halo glow */}
                 <div className="absolute -inset-3 bg-[#B4E50D]/30 rounded-3xl blur-xl" />
                 <div className="relative px-10 py-5 rounded-2xl bg-[#FBFBFA] border-2 border-[#111111] shadow-md flex flex-col items-center">
                   <span className="text-5xl sm:text-6xl font-black tracking-tight text-[#111111] font-heading">
-                    Group {result.groupNumber}
+                    Kelompok {result.groupNumber}
                   </span>
                   <div className="mt-1 px-2.5 py-0.5 bg-[#B4E50D] text-[#111111] text-[11px] font-extrabold uppercase tracking-wider rounded-md">
-                    Active Member
+                    Anggota Aktif
                   </div>
                 </div>
               </div>
@@ -253,12 +260,12 @@ export default function HomePage() {
                 {copied ? (
                   <>
                     <Check className="w-4 h-4 text-emerald-600" />
-                    <span className="text-emerald-700">Copied Group {result.groupNumber}!</span>
+                    <span className="text-emerald-700">Nomor Kelompok {result.groupNumber} Disalin!</span>
                   </>
                 ) : (
                   <>
                     <Copy className="w-4 h-4 text-neutral-600" />
-                    <span>Copy Group</span>
+                    <span>Salin Nomor Kelompok</span>
                   </>
                 )}
               </button>
@@ -268,7 +275,7 @@ export default function HomePage() {
                 className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#B4E50D] hover:bg-[#a8db0a] text-[#111111] text-xs font-extrabold transition-all duration-200 cursor-pointer border border-[#9ecc09] shadow-sm btn-lift"
               >
                 <RefreshCw className="w-3.5 h-3.5 text-[#111111]" />
-                <span>Check Another Name</span>
+                <span>Cek Nama Lain</span>
               </button>
             </div>
 
@@ -278,7 +285,7 @@ export default function HomePage() {
                 <Lock className="w-3.5 h-3.5" />
               </div>
               <p className="text-[12px] text-neutral-600 leading-relaxed">
-                <strong className="text-[#111111]">Strictly Confidential:</strong> Your group assignment is private. Other participants cannot see other team members until announced by event organizers.
+                <strong className="text-[#111111]">Kerahasiaan Terjaga:</strong> Penempatan kelompok Anda bersifat rahasia. Peserta lain tidak dapat melihat anggota tim lainnya sampai diumumkan secara resmi oleh panitia acara.
               </p>
             </div>
           </div>

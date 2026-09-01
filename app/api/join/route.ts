@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getOrJoinParticipant } from '@/lib/db';
+import { getOrJoinParticipant, normalizeName } from '@/lib/db';
 import { createSessionToken, SESSION_COOKIE_NAME } from '@/lib/auth';
 
 export async function POST(request: Request) {
@@ -7,14 +7,14 @@ export async function POST(request: Request) {
     const body = await request.json();
     const { name, gender } = body;
 
-    if (!name || typeof name !== 'string' || !name.trim()) {
+    const normalizedName = normalizeName(name);
+
+    if (!normalizedName || normalizedName.length < 2) {
       return NextResponse.json(
-        { success: false, error: 'Please enter your name.' },
+        { success: false, error: 'Silakan masukkan nama lengkap yang valid (minimal 2 karakter).' },
         { status: 400 }
       );
     }
-
-    const trimmedName = name.trim();
 
     // Validate gender for participants
     const validatedGender: 'MALE' | 'FEMALE' =
@@ -23,11 +23,11 @@ export async function POST(request: Request) {
         : 'MALE';
 
     // Execute Gender-Balanced Auto-Assignment
-    const result = getOrJoinParticipant(trimmedName, validatedGender);
+    const result = getOrJoinParticipant(normalizedName, validatedGender);
 
     if (!result.success || !result.user) {
       return NextResponse.json(
-        { success: false, error: result.error || 'Registration is currently full.' },
+        { success: false, error: result.error || 'Pendaftaran saat ini telah penuh.' },
         { status: 400 }
       );
     }
@@ -59,11 +59,12 @@ export async function POST(request: Request) {
     });
 
     return response;
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Join API error:', error);
     return NextResponse.json(
-      { success: false, error: 'An unexpected server error occurred.' },
+      { success: false, error: 'Terjadi kesalahan server yang tidak terduga.' },
       { status: 500 }
     );
   }
 }
+

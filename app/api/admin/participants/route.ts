@@ -7,6 +7,9 @@ import {
   autoAssignGroup,
   reassignParticipant,
   clearAllParticipants,
+  normalizeName,
+  findUserByName,
+  findSimilarUser,
 } from '@/lib/db';
 
 export async function GET() {
@@ -14,7 +17,7 @@ export async function GET() {
     const isAdmin = await requireAdmin();
     if (!isAdmin) {
       return NextResponse.json(
-        { success: false, error: 'Unauthorized: Admin access required.' },
+        { success: false, error: 'Akses ditolak: Diperlukan login admin.' },
         { status: 403 }
       );
     }
@@ -27,9 +30,9 @@ export async function GET() {
       participants,
       stats,
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Admin GET error:', error);
-    return NextResponse.json({ success: false, error: 'Internal server error' }, { status: 500 });
+    return NextResponse.json({ success: false, error: 'Terjadi kesalahan pada server' }, { status: 500 });
   }
 }
 
@@ -38,7 +41,7 @@ export async function POST(request: Request) {
     const isAdmin = await requireAdmin();
     if (!isAdmin) {
       return NextResponse.json(
-        { success: false, error: 'Unauthorized: Admin access required.' },
+        { success: false, error: 'Akses ditolak: Diperlukan login admin.' },
         { status: 403 }
       );
     }
@@ -52,10 +55,10 @@ export async function POST(request: Request) {
       const maxPerGroup = parseInt(body.maxPerGroup, 10);
 
       if (isNaN(totalGroups) || totalGroups < 2 || totalGroups > 30) {
-        return NextResponse.json({ success: false, error: 'Total Groups must be between 2 and 30.' }, { status: 400 });
+        return NextResponse.json({ success: false, error: 'Jumlah Kelompok harus antara 2 dan 30.' }, { status: 400 });
       }
       if (isNaN(maxPerGroup) || maxPerGroup < 1 || maxPerGroup > 200) {
-        return NextResponse.json({ success: false, error: 'Max Per Group must be between 1 and 200.' }, { status: 400 });
+        return NextResponse.json({ success: false, error: 'Maksimal Per Kelompok harus antara 1 dan 200.' }, { status: 400 });
       }
 
       const res = updateSettings(totalGroups, maxPerGroup);
@@ -65,7 +68,7 @@ export async function POST(request: Request) {
 
       return NextResponse.json({
         success: true,
-        message: `Group Settings saved: ${totalGroups} Groups, max ${maxPerGroup} per group.`,
+        message: `Pengaturan kelompok disimpan: ${totalGroups} Kelompok, maksimal ${maxPerGroup} per kelompok.`,
         stats: getStats(),
       });
     }
@@ -73,47 +76,64 @@ export async function POST(request: Request) {
     // Action: Clear entire roster
     if (action === 'clear_roster') {
       clearAllParticipants();
-      return NextResponse.json({ success: true, message: 'All participants cleared.' });
+      return NextResponse.json({ success: true, message: 'Seluruh data peserta berhasil dikosongkan.' });
     }
 
     // Action: Manual Add Participant
     const { name, gender, groupNumber } = body;
-    if (!name || typeof name !== 'string' || !name.trim()) {
-      return NextResponse.json({ success: false, error: 'Participant name is required.' }, { status: 400 });
+    const cleanName = normalizeName(name);
+    if (!cleanName || cleanName.length < 2) {
+      return NextResponse.json({ success: false, error: 'Nama peserta wajib diisi (minimal 2 karakter).' }, { status: 400 });
     }
 
-    const trimmedName = name.trim();
     const validatedGender: 'MALE' | 'FEMALE' =
       gender && gender.toString().toUpperCase() === 'FEMALE' ? 'FEMALE' : 'MALE';
+
+    const existing = findUserByName(cleanName);
+    if (existing) {
+      return NextResponse.json({
+        success: false,
+        error: `Peserta dengan nama "${cleanName}" sudah terdaftar di Kelompok ${existing.group_number}.`,
+      }, { status: 400 });
+    }
+
+    const similar = findSimilarUser(cleanName);
+    if (similar) {
+      return NextResponse.json({
+        success: false,
+        error: `Nama "${cleanName}" terdeteksi mirip dengan peserta terdaftar ("${similar.user.name}" di Kelompok ${similar.user.group_number}). Harap periksa kembali penulisan nama.`,
+      }, { status: 400 });
+    }
 
     const parsedGroup = groupNumber ? parseInt(groupNumber, 10) : null;
 
     if (parsedGroup && parsedGroup >= 1) {
       // Manual add to specific group
-      const assignRes = autoAssignGroup(trimmedName, validatedGender);
+      const assignRes = autoAssignGroup(cleanName, validatedGender);
       if (assignRes.success && assignRes.user) {
         reassignParticipant(assignRes.user.id, parsedGroup);
         return NextResponse.json({
           success: true,
-          message: `Added "${trimmedName}" (${validatedGender}) directly to Group ${parsedGroup}!`,
+          message: `Berhasil menambahkan "${cleanName}" (${validatedGender === 'FEMALE' ? 'Perempuan' : 'Laki-laki'}) langsung ke Kelompok ${parsedGroup}!`,
         });
       } else {
         return NextResponse.json({ success: false, error: assignRes.error }, { status: 400 });
       }
     } else {
       // Auto-assign with gender balancing
-      const assignRes = autoAssignGroup(trimmedName, validatedGender);
+      const assignRes = autoAssignGroup(cleanName, validatedGender);
       if (!assignRes.success || !assignRes.user) {
-        return NextResponse.json({ success: false, error: assignRes.error || 'Failed to auto-assign' }, { status: 400 });
+        return NextResponse.json({ success: false, error: assignRes.error || 'Gagal menempatkan otomatis' }, { status: 400 });
       }
 
       return NextResponse.json({
         success: true,
-        message: `Added and auto-assigned "${trimmedName}" (${validatedGender}) to Group ${assignRes.user.group_number}!`,
+        message: `Berhasil menambahkan dan menempatkan "${cleanName}" (${validatedGender === 'FEMALE' ? 'Perempuan' : 'Laki-laki'}) ke Kelompok ${assignRes.user.group_number}!`,
       });
     }
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Admin POST error:', error);
-    return NextResponse.json({ success: false, error: 'Internal server error' }, { status: 500 });
+    return NextResponse.json({ success: false, error: 'Terjadi kesalahan pada server' }, { status: 500 });
   }
 }
+

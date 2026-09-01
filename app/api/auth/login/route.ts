@@ -29,21 +29,22 @@ export async function POST(request: Request) {
         secure: process.env.NODE_ENV === 'production',
         sameSite: 'lax',
         path: '/',
-        maxAge: 60 * 60 * 24,
+        maxAge: 60 * 60 * 24 * 7,
       });
 
       return response;
     }
 
     return NextResponse.json(
-      { success: false, message: 'Invalid admin password.' },
+      { success: false, message: 'Password admin tidak valid.' },
       { status: 401 }
     );
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Admin login error:', error);
     return NextResponse.json(
-      { success: false, message: 'Server error' },
+      { success: false, message: 'Terjadi kesalahan pada server' },
       { status: 500 }
     );
   }
 }
+

@@ -150,24 +150,149 @@ export function updateSettings(totalGroups: number, maxPerGroup: number): { succ
     `).run(validTotal, validMax);
 
     return { success: true };
-  } catch (err: any) {
-    return { success: false, error: err.message || 'Failed to update settings' };
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : 'Gagal memperbarui pengaturan';
+    return { success: false, error: errorMsg };
   }
+}
+
+// String Normalization Helper: trim leading/trailing whitespace & collapse multiple inner spaces
+export function normalizeName(input: unknown): string {
+  if (!input || typeof input !== 'string') return '';
+  return input.trim().replace(/\s+/g, ' ');
+}
+
+// Levenshtein distance helper for typo and edit-distance similarity detection
+function getLevenshteinDistance(a: string, b: string): number {
+  const matrix: number[][] = [];
+  for (let i = 0; i <= b.length; i++) {
+    matrix[i] = [i];
+  }
+  for (let j = 0; j <= a.length; j++) {
+    matrix[0][j] = j;
+  }
+  for (let i = 1; i <= b.length; i++) {
+    for (let j = 1; j <= a.length; j++) {
+      if (b.charAt(i - 1) === a.charAt(j - 1)) {
+        matrix[i][j] = matrix[i - 1][j - 1];
+      } else {
+        matrix[i][j] = Math.min(
+          matrix[i - 1][j - 1] + 1, // substitution
+          matrix[i][j - 1] + 1,     // insertion
+          matrix[i - 1][j] + 1      // deletion
+        );
+      }
+    }
+  }
+  return matrix[b.length][a.length];
 }
 
 // User lookups
 export function findUserByName(name: string): UserRecord | null {
-  const trimmed = name.trim();
-  if (!trimmed) return null;
+  const clean = normalizeName(name);
+  if (!clean) return null;
 
+  // 1. Direct query with SQLite NOCASE / LOWER
   const stmt = db.prepare(`
     SELECT id, name, gender, role, group_number, created_at
     FROM users
     WHERE LOWER(name) = LOWER(?)
     LIMIT 1
   `);
-  const row = stmt.get(trimmed) as UserRecord | undefined;
-  return row ?? null;
+  const row = stmt.get(clean) as UserRecord | undefined;
+  if (row) return row;
+
+  // 2. Fallback normalization across existing users to catch irregular whitespace
+  const allStmt = db.prepare(`
+    SELECT id, name, gender, role, group_number, created_at
+    FROM users
+  `);
+  const allUsers = allStmt.all() as unknown as UserRecord[];
+  const targetLower = clean.toLowerCase();
+
+  for (const u of allUsers) {
+    if (normalizeName(u.name).toLowerCase() === targetLower) {
+      return u;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Detects if a candidate name is too similar or ambiguous with any existing registered participant.
+ * Prevents duplicates from:
+ * 1. Substring containment via .toLowerCase() and .includes() (e.g. "Budi" vs "Budi Santoso")
+ * 2. Word token containment (e.g. "Maya" vs "Maya Lin")
+ * 3. Typo similarity (Levenshtein distance <= 2)
+ */
+export function findSimilarUser(name: string): { user: UserRecord; reason: string } | null {
+  const clean = normalizeName(name);
+  if (!clean) return null;
+
+  const cleanLower = clean.toLowerCase();
+  const cleanTokens = cleanLower.split(' ').filter((t) => t.length >= 2);
+
+  const allStmt = db.prepare(`
+    SELECT id, name, gender, role, group_number, created_at
+    FROM users
+    WHERE role = 'PARTICIPANT'
+  `);
+  const allUsers = allStmt.all() as unknown as UserRecord[];
+
+  for (const u of allUsers) {
+    const existingClean = normalizeName(u.name);
+    const existingLower = existingClean.toLowerCase();
+
+    // Exact match is handled separately by findUserByName
+    if (existingLower === cleanLower) continue;
+
+    // 1. Substring containment using .toLowerCase() and .includes()
+    // e.g. "Budi" vs "Budi Santoso" or "Budi Santoso" vs "Budi"
+    if (cleanLower.length >= 3 && existingLower.length >= 3) {
+      if (existingLower.includes(cleanLower)) {
+        return {
+          user: u,
+          reason: `Nama "${clean}" merupakan bagian dari nama peserta terdaftar "${existingClean}".`,
+        };
+      }
+      if (cleanLower.includes(existingLower)) {
+        return {
+          user: u,
+          reason: `Nama "${clean}" memuat nama peserta terdaftar "${existingClean}".`,
+        };
+      }
+    }
+
+    // 2. Significant Word Token Overlap
+    const existingTokens = existingLower.split(' ').filter((t) => t.length >= 2);
+    const commonTokens = cleanTokens.filter((t) => existingTokens.includes(t));
+    if (commonTokens.length > 0) {
+      if (
+        cleanTokens.length === 1 ||
+        existingTokens.length === 1 ||
+        commonTokens.length >= Math.min(cleanTokens.length, existingTokens.length)
+      ) {
+        return {
+          user: u,
+          reason: `Nama "${clean}" memiliki kesamaan kata dengan "${existingClean}".`,
+        };
+      }
+    }
+
+    // 3. Typo / Edit Distance similarity (Levenshtein)
+    const minLength = Math.min(cleanLower.length, existingLower.length);
+    const distance = getLevenshteinDistance(cleanLower, existingLower);
+    const maxAllowedDistance = minLength > 6 ? 2 : 1;
+    if (distance > 0 && distance <= maxAllowedDistance && minLength >= 4) {
+      return {
+        user: u,
+        reason: `Nama "${clean}" sangat mirip dengan nama terdaftar "${existingClean}" (kemungkinan salah ketik).`,
+      };
+    }
+  }
+
+  return null;
 }
 
 export function getUserById(id: number): UserRecord | null {
@@ -196,7 +321,25 @@ export function autoAssignGroup(
   gender: 'MALE' | 'FEMALE'
 ): { success: boolean; user?: UserRecord; isNew?: boolean; error?: string } {
   try {
-    const trimmed = name.trim();
+    const clean = normalizeName(name);
+    if (!clean) {
+      return { success: false, error: 'Silakan masukkan nama peserta yang valid.' };
+    }
+
+    // Safety check: if participant already exists under any case/spacing variation
+    const existing = findUserByName(clean);
+    if (existing) {
+      return { success: true, user: existing, isNew: false };
+    }
+
+    const similar = findSimilarUser(clean);
+    if (similar) {
+      return {
+        success: false,
+        error: `Nama "${clean}" terdeteksi mirip dengan peserta terdaftar ("${similar.user.name}").`,
+      };
+    }
+
     const settings = getSettings();
     const { totalGroups, maxPerGroup } = settings;
 
@@ -251,7 +394,7 @@ export function autoAssignGroup(
     if (availableGroups.length === 0) {
       return {
         success: false,
-        error: `Registration Full. All ${totalGroups} groups have reached their maximum capacity of ${maxPerGroup} participants.`,
+        error: `Pendaftaran Penuh. Seluruh ${totalGroups} kelompok telah mencapai kapasitas maksimum ${maxPerGroup} peserta.`,
       };
     }
 
@@ -269,16 +412,16 @@ export function autoAssignGroup(
     const randomIndex = Math.floor(Math.random() * tiedGroups.length);
     const chosenGroup = tiedGroups[randomIndex].groupNumber;
 
-    // Step F: Insert into database
+    // Step F: Insert normalized clean name into database
     const insertStmt = db.prepare(`
       INSERT INTO users (name, gender, role, group_number)
       VALUES (?, ?, 'PARTICIPANT', ?)
     `);
-    const info = insertStmt.run(trimmed, gender, chosenGroup);
+    const info = insertStmt.run(clean, gender, chosenGroup);
 
     const newUser: UserRecord = {
       id: Number(info.lastInsertRowid),
-      name: trimmed,
+      name: clean,
       gender,
       role: 'PARTICIPANT',
       group_number: chosenGroup,
@@ -286,8 +429,9 @@ export function autoAssignGroup(
     };
 
     return { success: true, user: newUser, isNew: true };
-  } catch (err: any) {
-    return { success: false, error: err.message || 'Auto-assignment failed' };
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : 'Gagal menempatkan peserta secara otomatis';
+    return { success: false, error: errorMsg };
   }
 }
 
@@ -295,11 +439,25 @@ export function getOrJoinParticipant(
   name: string,
   gender: 'MALE' | 'FEMALE'
 ): { success: boolean; user?: UserRecord; isNew?: boolean; error?: string } {
-  const existing = findUserByName(name);
+  const clean = normalizeName(name);
+  if (!clean) {
+    return { success: false, error: 'Silakan masukkan nama yang valid.' };
+  }
+  const existing = findUserByName(clean);
   if (existing) {
     return { success: true, user: existing, isNew: false };
   }
-  return autoAssignGroup(name, gender);
+
+  // Similarity & Substring Conflict Check
+  const similar = findSimilarUser(clean);
+  if (similar) {
+    return {
+      success: false,
+      error: `Nama "${clean}" terdeteksi mirip dengan peserta yang sudah terdaftar ("${similar.user.name}"). Harap gunakan nama lengkap yang lebih spesifik agar tidak tertukar.`,
+    };
+  }
+
+  return autoAssignGroup(clean, gender);
 }
 
 export function getAllParticipants(): ParticipantRecord[] {
@@ -317,27 +475,29 @@ export function deleteParticipant(id: number): { success: boolean; error?: strin
     const stmt = db.prepare(`DELETE FROM users WHERE id = ? AND role = 'PARTICIPANT'`);
     const info = stmt.run(id);
     if (info.changes === 0) {
-      return { success: false, error: 'Participant not found' };
+      return { success: false, error: 'Peserta tidak ditemukan' };
     }
     return { success: true };
-  } catch (err: any) {
-    return { success: false, error: err.message };
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : 'Gagal menghapus peserta';
+    return { success: false, error: errorMsg };
   }
 }
 
 export function reassignParticipant(id: number, newGroup: number): { success: boolean; error?: string } {
   try {
     if (newGroup < 1) {
-      return { success: false, error: 'Invalid group number' };
+      return { success: false, error: 'Nomor kelompok tidak valid' };
     }
     const stmt = db.prepare(`UPDATE users SET group_number = ? WHERE id = ? AND role = 'PARTICIPANT'`);
     const info = stmt.run(Math.floor(newGroup), id);
     if (info.changes === 0) {
-      return { success: false, error: 'Participant not found' };
+      return { success: false, error: 'Peserta tidak ditemukan' };
     }
     return { success: true };
-  } catch (err: any) {
-    return { success: false, error: err.message };
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : 'Gagal memindahkan kelompok peserta';
+    return { success: false, error: errorMsg };
   }
 }
 
@@ -347,6 +507,93 @@ export function clearAllParticipants(): { success: boolean } {
     return { success: true };
   } catch {
     return { success: false };
+  }
+}
+
+export function shuffleAllParticipants(): {
+  success: boolean;
+  count?: number;
+  stats?: ReturnType<typeof getStats>;
+  error?: string;
+} {
+  try {
+    const settings = getSettings();
+    const { totalGroups } = settings;
+
+    if (totalGroups < 2) {
+      return { success: false, error: 'Jumlah kelompok minimal adalah 2' };
+    }
+
+    const stmt = db.prepare(`
+      SELECT id, name, gender, role, group_number, created_at
+      FROM users
+      WHERE role = 'PARTICIPANT'
+    `);
+    const all = stmt.all() as unknown as ParticipantRecord[];
+
+    if (all.length === 0) {
+      return { success: true, count: 0, stats: getStats() };
+    }
+
+    // Split participants by gender
+    const males = all.filter((p) => p.gender === 'MALE');
+    const females = all.filter((p) => p.gender === 'FEMALE');
+
+    // Cryptographically unbiased Fisher-Yates shuffle
+    const shuffle = <T>(array: T[]): T[] => {
+      const arr = [...array];
+      for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        const temp = arr[i];
+        arr[i] = arr[j];
+        arr[j] = temp;
+      }
+      return arr;
+    };
+
+    const shuffledMales = shuffle(males);
+    const shuffledFemales = shuffle(females);
+
+    // Balanced round-robin distribution
+    const updates: { id: number; groupNumber: number }[] = [];
+
+    // Assign males across groups 1..totalGroups
+    shuffledMales.forEach((m, idx) => {
+      const groupNumber = (idx % totalGroups) + 1;
+      updates.push({ id: m.id, groupNumber });
+    });
+
+    // Assign females with offset to balance overall team sizes and gender ratios
+    const offset = shuffledMales.length % totalGroups;
+    shuffledFemales.forEach((f, idx) => {
+      const groupNumber = ((idx + offset) % totalGroups) + 1;
+      updates.push({ id: f.id, groupNumber });
+    });
+
+    // Mass update into database in a transaction
+    db.exec('BEGIN TRANSACTION;');
+    const updateStmt = db.prepare(`UPDATE users SET group_number = ? WHERE id = ?`);
+    try {
+      for (const u of updates) {
+        updateStmt.run(u.groupNumber, u.id);
+      }
+      db.exec('COMMIT;');
+    } catch (txErr) {
+      db.exec('ROLLBACK;');
+      throw txErr;
+    }
+
+    return {
+      success: true,
+      count: updates.length,
+      stats: getStats(),
+    };
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : 'Gagal mengacak kelompok secara otomatis';
+    return {
+      success: false,
+      error: errorMsg,
+    };
   }
 }
 
@@ -408,3 +655,5 @@ export function getStats() {
     groupBreakdowns,
   };
 }
+
+
