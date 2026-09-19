@@ -10,31 +10,27 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-enum Gender {
-  MALE
-  FEMALE
-}
-
-enum Role {
-  ADMIN
-  PARTICIPANT
-}
-
 model Participant {
   id          Int      @id @default(autoincrement())
-  name        String   @unique
-  gender      Gender
-  role        Role     @default(PARTICIPANT)
+  nim         String   @unique
+  password    String
+  nama        String
+  golongan    String   // Pilihan: 'A' | 'B' | 'C' | 'D'
+  gender      String   // 'L' atau 'P'
+  role        String   @default("PARTICIPANT") // "ADMIN" | "PARTICIPANT"
+  status      String   @default("PENDING")     // "PENDING" | "APPROVED"
   groupNumber Int?     @map("group_number")
+  isLeader    Boolean  @default(false) @map("is_leader")
   createdAt   DateTime @default(now()) @map("created_at")
 
-  @@map("participants")
+  @@map("users")
 }
 
 model Setting {
-  id          Int @id @default(1)
-  totalGroups Int @default(4) @map("total_groups")
-  maxPerGroup Int @default(10) @map("max_per_group")
+  id          Int     @id @default(1)
+  totalGroups Int     @default(4) @map("total_groups")
+  maxPerGroup Int     @default(10) @map("max_per_group")
+  isPublished Boolean @default(false) @map("is_published")
 
   @@map("settings")
 }

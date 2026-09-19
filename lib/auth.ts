@@ -10,6 +10,7 @@ export const SESSION_COOKIE_NAME = 'sga_session';
 
 export interface SessionPayload {
   userId: number;
+  nim?: string;
   name: string;
   role: 'ADMIN' | 'PARTICIPANT';
 }
@@ -27,6 +28,7 @@ export async function verifySessionToken(token: string): Promise<SessionPayload 
     const { payload } = await jwtVerify(token, JWT_SECRET);
     return {
       userId: payload.userId as number,
+      nim: payload.nim as string | undefined,
       name: payload.name as string,
       role: payload.role as 'ADMIN' | 'PARTICIPANT',
     };
@@ -48,10 +50,14 @@ export async function requireAuth(): Promise<UserRecord | null> {
   if (session.role === 'ADMIN') {
     return {
       id: 0,
-      name: session.name || 'Admin',
-      gender: 'MALE',
+      nim: 'ADMIN',
+      nama: session.name || 'Administrator',
+      golongan: 'ADMIN',
+      gender: 'L',
       role: 'ADMIN',
+      status: 'APPROVED',
       group_number: null,
+      is_leader: false,
       created_at: new Date().toISOString(),
     };
   }

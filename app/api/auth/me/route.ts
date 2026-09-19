@@ -14,6 +14,8 @@ export async function GET() {
         authenticated: true,
         user: {
           id: 0,
+          nim: 'ADMIN',
+          nama: 'Administrator',
           name: 'Administrator',
           role: 'ADMIN',
           groupNumber: null,
@@ -30,9 +32,14 @@ export async function GET() {
       authenticated: true,
       user: {
         id: user.id,
-        name: user.name,
+        nim: user.nim,
+        nama: user.nama,
+        name: user.nama,
+        golongan: user.golongan,
+        status: user.status,
+        gender: user.gender,
         role: user.role,
-        groupNumber: user.role === 'PARTICIPANT' ? user.group_number : null,
+        groupNumber: null, // strictly hidden from participant
       },
     });
   } catch (error: unknown) {
@@ -40,4 +47,3 @@ export async function GET() {
     return NextResponse.json({ authenticated: false, error: 'Terjadi kesalahan pada server' }, { status: 500 });
   }
 }
-

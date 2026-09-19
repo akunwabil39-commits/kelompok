@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth';
-import { deleteParticipant, reassignParticipant } from '@/lib/db';
+import { deleteParticipant, reassignParticipant, approveParticipant } from '@/lib/db';
 
 export async function DELETE(
   request: Request,
@@ -47,7 +47,15 @@ export async function PUT(
     }
 
     const body = await request.json();
-    const { groupNumber } = body;
+    const { action, groupNumber } = body;
+
+    if (action === 'approve') {
+      const result = approveParticipant(id);
+      if (!result.success) {
+        return NextResponse.json({ success: false, error: result.error }, { status: 400 });
+      }
+      return NextResponse.json({ success: true, message: 'Peserta berhasil disetujui (APPROVED).' });
+    }
 
     const parsedGroup = parseInt(groupNumber, 10);
     if (isNaN(parsedGroup) || parsedGroup < 1) {
@@ -65,4 +73,3 @@ export async function PUT(
     return NextResponse.json({ success: false, error: 'Terjadi kesalahan pada server' }, { status: 500 });
   }
 }
-

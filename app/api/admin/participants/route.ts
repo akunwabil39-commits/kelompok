@@ -4,12 +4,15 @@ import {
   getAllParticipants,
   getStats,
   updateSettings,
-  autoAssignGroup,
+  registerParticipant,
   reassignParticipant,
+  approveParticipant,
+  approveAllParticipants,
+  setPublishStatus,
   clearAllParticipants,
-  normalizeName,
-  findUserByName,
-  findSimilarUser,
+  setParticipantLeader,
+  normalizeString,
+  findUserByNim,
 } from '@/lib/db';
 
 export async function GET() {
@@ -49,6 +52,63 @@ export async function POST(request: Request) {
     const body = await request.json();
     const { action } = body;
 
+    // Action: Approve single participant
+    if (action === 'approve') {
+      const participantId = Number(body.id);
+      if (!participantId) {
+        return NextResponse.json({ success: false, error: 'ID peserta tidak valid.' }, { status: 400 });
+      }
+
+      const result = approveParticipant(participantId);
+      if (!result.success) {
+        return NextResponse.json({ success: false, error: result.error }, { status: 400 });
+      }
+
+      return NextResponse.json({
+        success: true,
+        message: 'Akun peserta berhasil disetujui (APPROVED)!',
+        participants: getAllParticipants(),
+        stats: getStats(),
+      });
+    }
+
+    // Action: Approve all pending participants
+    if (action === 'approve_all') {
+      const result = approveAllParticipants();
+      if (!result.success) {
+        return NextResponse.json({ success: false, error: result.error }, { status: 400 });
+      }
+
+      return NextResponse.json({
+        success: true,
+        message: `Berhasil menyetujui ${result.count || 0} akun peserta!`,
+        participants: getAllParticipants(),
+        stats: getStats(),
+      });
+    }
+
+    // Action: Set / Toggle Participant as Group Leader
+    if (action === 'set_leader') {
+      const participantId = Number(body.id);
+      const isLeader = Boolean(body.isLeader);
+
+      if (!participantId) {
+        return NextResponse.json({ success: false, error: 'ID peserta tidak valid.' }, { status: 400 });
+      }
+
+      const result = setParticipantLeader(participantId, isLeader);
+      if (!result.success) {
+        return NextResponse.json({ success: false, error: result.error }, { status: 400 });
+      }
+
+      return NextResponse.json({
+        success: true,
+        message: isLeader ? 'Peserta berhasil ditetapkan sebagai Ketua Kelompok!' : 'Status Ketua Kelompok berhasil dicabut.',
+        participants: getAllParticipants(),
+        stats: getStats(),
+      });
+    }
+
     // Action: Update Group Settings (totalGroups and maxPerGroup)
     if (action === 'update_settings') {
       const totalGroups = parseInt(body.totalGroups, 10);
@@ -73,6 +133,24 @@ export async function POST(request: Request) {
       });
     }
 
+    // Action: Set / Toggle Result Publication Status
+    if (action === 'set_publish') {
+      const isPublished = Boolean(body.isPublished);
+      const res = setPublishStatus(isPublished);
+      if (!res.success) {
+        return NextResponse.json({ success: false, error: res.error }, { status: 400 });
+      }
+
+      return NextResponse.json({
+        success: true,
+        message: isPublished
+          ? 'Hasil kelompok berhasil dipublikasikan! Peserta kini dapat melihat nomor kelompok dan rekan sekelompoknya.'
+          : 'Hasil kelompok berhasil disembunyikan. Peserta tidak dapat melihat nomor kelompok.',
+        isPublished,
+        stats: getStats(),
+      });
+    }
+
     // Action: Clear entire roster
     if (action === 'clear_roster') {
       clearAllParticipants();
@@ -80,60 +158,56 @@ export async function POST(request: Request) {
     }
 
     // Action: Manual Add Participant
-    const { name, gender, groupNumber } = body;
-    const cleanName = normalizeName(name);
-    if (!cleanName || cleanName.length < 2) {
-      return NextResponse.json({ success: false, error: 'Nama peserta wajib diisi (minimal 2 karakter).' }, { status: 400 });
+    const { nim, nama, name, golongan, kelas, gender, password, groupNumber, status } = body;
+    const cleanNim = normalizeString(nim);
+    const cleanNama = normalizeString(nama || name);
+    const cleanGolongan = normalizeString(golongan || kelas || 'GOL-A').toUpperCase();
+    const cleanGender: 'L' | 'P' = gender === 'P' || gender === 'FEMALE' ? 'P' : 'L';
+    const pass = password || 'password123';
+
+    if (!cleanNim) {
+      return NextResponse.json({ success: false, error: 'NIM wajib diisi.' }, { status: 400 });
+    }
+    if (!cleanNama) {
+      return NextResponse.json({ success: false, error: 'Nama peserta wajib diisi.' }, { status: 400 });
     }
 
-    const validatedGender: 'MALE' | 'FEMALE' =
-      gender && gender.toString().toUpperCase() === 'FEMALE' ? 'FEMALE' : 'MALE';
-
-    const existing = findUserByName(cleanName);
+    const existing = findUserByNim(cleanNim);
     if (existing) {
       return NextResponse.json({
         success: false,
-        error: `Peserta dengan nama "${cleanName}" sudah terdaftar di Kelompok ${existing.group_number}.`,
+        error: `Peserta dengan NIM "${cleanNim}" sudah terdaftar (${existing.nama}).`,
       }, { status: 400 });
     }
 
-    const similar = findSimilarUser(cleanName);
-    if (similar) {
-      return NextResponse.json({
-        success: false,
-        error: `Nama "${cleanName}" terdeteksi mirip dengan peserta terdaftar ("${similar.user.name}" di Kelompok ${similar.user.group_number}). Harap periksa kembali penulisan nama.`,
-      }, { status: 400 });
+    const regRes = registerParticipant({
+      nim: cleanNim,
+      nama: cleanNama,
+      golongan: cleanGolongan,
+      gender: cleanGender,
+      password: pass,
+    });
+
+    if (!regRes.success || !regRes.user) {
+      return NextResponse.json({ success: false, error: regRes.error || 'Gagal menambahkan peserta' }, { status: 400 });
+    }
+
+    // If manual add specifies approved, approve them
+    if (status === 'APPROVED') {
+      approveParticipant(regRes.user.id);
     }
 
     const parsedGroup = groupNumber ? parseInt(groupNumber, 10) : null;
-
     if (parsedGroup && parsedGroup >= 1) {
-      // Manual add to specific group
-      const assignRes = autoAssignGroup(cleanName, validatedGender);
-      if (assignRes.success && assignRes.user) {
-        reassignParticipant(assignRes.user.id, parsedGroup);
-        return NextResponse.json({
-          success: true,
-          message: `Berhasil menambahkan "${cleanName}" (${validatedGender === 'FEMALE' ? 'Perempuan' : 'Laki-laki'}) langsung ke Kelompok ${parsedGroup}!`,
-        });
-      } else {
-        return NextResponse.json({ success: false, error: assignRes.error }, { status: 400 });
-      }
-    } else {
-      // Auto-assign with gender balancing
-      const assignRes = autoAssignGroup(cleanName, validatedGender);
-      if (!assignRes.success || !assignRes.user) {
-        return NextResponse.json({ success: false, error: assignRes.error || 'Gagal menempatkan otomatis' }, { status: 400 });
-      }
-
-      return NextResponse.json({
-        success: true,
-        message: `Berhasil menambahkan dan menempatkan "${cleanName}" (${validatedGender === 'FEMALE' ? 'Perempuan' : 'Laki-laki'}) ke Kelompok ${assignRes.user.group_number}!`,
-      });
+      reassignParticipant(regRes.user.id, parsedGroup);
     }
+
+    return NextResponse.json({
+      success: true,
+      message: `Berhasil menambahkan peserta "${cleanNama}" (NIM: ${cleanNim}, Golongan: ${cleanGolongan}, Gender: ${cleanGender === 'L' ? 'Laki-laki' : 'Perempuan'})${parsedGroup ? ` ke Kelompok ${parsedGroup}` : ' (Belum ditentukan kelompok)'}!`,
+    });
   } catch (error: unknown) {
     console.error('Admin POST error:', error);
     return NextResponse.json({ success: false, error: 'Terjadi kesalahan pada server' }, { status: 500 });
   }
 }
-
